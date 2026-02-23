@@ -1,11 +1,25 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
+// --- PIN DEFINITIONS ---
 #define PUMP_1 2
 #define PUMP_2 3
 #define PUMP_3 4
 #define PERI_PUMP 5
 #define PH_PIN A0
+
+// ==========================================
+//    TIMING CONFIGURATION (Milliseconds)
+//    Adjust these values to change durations
+// ==========================================
+const unsigned long T_PUMP_1     = 3000;  // Duration for Pump 1
+const unsigned long T_UV_EXPOSE  = 5000;  // Duration for UV Exposure
+const unsigned long T_PUMP_2     = 3000;  // Duration for Pump 2
+const unsigned long T_PERI_PUMP  = 3000;  // Duration for Chlorine Pump
+const unsigned long T_STABILIZE  = 5000;  // Delay for pH stabilization
+const unsigned long T_PUMP_3     = 3000;  // Duration for Discharge Pump
+const unsigned long T_COOLDOWN   = 10000; // Delay before restarting cycle
+// ==========================================
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -36,11 +50,9 @@ void setup() {
 }
 
 void loop() {
-  // Sensor only READS when it is "his turn" (sensorActive is true)
   if (sensorActive) {
     readPH();
   }
-  
   runStateMachine();
   updateDisplayAndSerial(); 
 }
@@ -58,7 +70,7 @@ void runStateMachine() {
       currentStatus = "Pump 1 Active";
       sensorActive = false; 
       digitalWrite(PUMP_1, LOW);
-      if (currentMillis - previousMillis >= 3000) {
+      if (currentMillis - previousMillis >= T_PUMP_1) { // <--- Adjusted
         digitalWrite(PUMP_1, HIGH);
         prepareNextState(currentMillis, 1);
       }
@@ -66,7 +78,7 @@ void runStateMachine() {
 
     case 1: // UV Exposure
       currentStatus = "UV Exposed";
-      if (currentMillis - previousMillis >= 5000) {
+      if (currentMillis - previousMillis >= T_UV_EXPOSE) { // <--- Adjusted
         prepareNextState(currentMillis, 2);
       }
       break;
@@ -74,7 +86,7 @@ void runStateMachine() {
     case 2: // Pump 2
       currentStatus = "Pump 2 Active";
       digitalWrite(PUMP_2, LOW);
-      if (currentMillis - previousMillis >= 3000) {
+      if (currentMillis - previousMillis >= T_PUMP_2) { // <--- Adjusted
         digitalWrite(PUMP_2, HIGH);
         prepareNextState(currentMillis, 3);
       }
@@ -83,17 +95,16 @@ void runStateMachine() {
     case 3: // Chlorine (Peri Pump)
       currentStatus = "Add Chlorine";
       digitalWrite(PERI_PUMP, LOW);
-      if (currentMillis - previousMillis >= 3000) {
+      if (currentMillis - previousMillis >= T_PERI_PUMP) { // <--- Adjusted
         digitalWrite(PERI_PUMP, HIGH);
-        // Turn sensor ON now for the upcoming stabilization
         sensorActive = true; 
         prepareNextState(currentMillis, 4);
       }
       break;
 
-    case 4: // Stabilization Delay (5s)
+    case 4: // Stabilization Delay
       currentStatus = "Stabilizing...";
-      if (currentMillis - previousMillis >= 5000) {
+      if (currentMillis - previousMillis >= T_STABILIZE) { // <--- Adjusted
         prepareNextState(currentMillis, 5);
       }
       break;
@@ -101,7 +112,7 @@ void runStateMachine() {
     case 5: // Monitoring Phase
       currentStatus = "Monitoring pH";
       if (currentPH >= 6.5 && currentPH <= 7.5) {
-        sensorActive = false; // Turn sensor OFF immediately after neutral
+        sensorActive = false;
         prepareNextState(currentMillis, 6);
       }
       break;
@@ -109,15 +120,15 @@ void runStateMachine() {
     case 6: // Pump 3 (Discharge)
       currentStatus = "Open Discharge";
       digitalWrite(PUMP_3, LOW); 
-      if (currentMillis - previousMillis >= 3000) {
+      if (currentMillis - previousMillis >= T_PUMP_3) { // <--- Adjusted
         digitalWrite(PUMP_3, HIGH);
         prepareNextState(currentMillis, 7);
       }
       break;
 
-    case 7: // Cooldown (10s)
+    case 7: // Cooldown
       currentStatus = "Cycle Cooldown";
-      if (currentMillis - previousMillis >= 10000) {
+      if (currentMillis - previousMillis >= T_COOLDOWN) { // <--- Adjusted
         resetCycle(currentMillis);
       }
       break;
@@ -147,17 +158,14 @@ void updateDisplayAndSerial() {
     Serial.print("S: "); Serial.print(currentStatus);
     
     if (sensorActive) {
-      // pH is shown on LCD and Serial
       String phStr = "pH: " + String(currentPH, 2);
       if (currentState == 5) {
         snprintf(line1, sizeof(line1), "%-9s WAIT ", phStr.c_str());
       } else {
         snprintf(line1, sizeof(line1), "%-16s", phStr.c_str());
       }
-      
       Serial.print(" | pH: "); Serial.println(currentPH, 2);
     } else {
-      // pH is OFF on LCD and Serial
       snprintf(line1, sizeof(line1), "pH: Sensor OFF ");
       Serial.println(" | pH: Sensor OFF");
     }
